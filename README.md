@@ -16,7 +16,8 @@ go run main.go -name langchain-base-layer
 
 # Installation
 Download the Lambda Layer Binary
-https://github.com/junctionnet/tools/blob/a485ad5612e88868900ec4cedbbe8ed8c9ae3f54/lambda-layer-tool/lambda-layer 
+https://github.com/birkoff/lambda-layer/raw/2b7bab37d5d27b1de4b221e4f7675aedc3fb2db1/lambda-layer-build
+
 
 Add the path where you downloaded the CLI Tool on BashRC or ZShrc
 `code ~/.zshrc`

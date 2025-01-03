@@ -1,8 +1,6 @@
-module github.com/yourusername/lambda-layer-builder
+module github.com/birkoff/lambda-layer-build
 
 go 1.21.5
-
-require github.com/spf13/cobra v1.8.1
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
