@@ -1,100 +1,33 @@
 # lambda-layer
-A Lambda Layer Builder
+A Lambda Layer CLI Tool to Build and Deploy AWS Lambda Layers
 
-Jump to
+# Requirements:
+- Docker
 
-Confluence navigation
-Side navigation
-Page
+# Build and Deploy
+```
+go build -o lambda-layer main.go
+```
 
-Company hub
-Home
+# Test
+```
+go run main.go -name langchain-base-layer
+```
 
-Recent
-
-Spaces
-
-Teams
-
-Apps
-Templates
-
-Create
-Search
-
-9+
-
-
-
-
-Software Development
-/
-Build and Deploy Python Lambda Layers
-Saved
-
-H
-
-
-
-
-
-Update
-
-
-Close
-
-Editing restored
-We’ve lost our connection to you. Your changes will be saved when we reconnect. Trying to reconnect
-
-
-
-
-Heading 1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Write
-
-Record
-
-Build and Deploy Python Lambda Layers
-Installation
+# Installation
 Download the Lambda Layer Binary
 https://github.com/junctionnet/tools/blob/a485ad5612e88868900ec4cedbbe8ed8c9ae3f54/lambda-layer-tool/lambda-layer 
 
 Add the path where you downloaded the CLI Tool on BashRC or ZShrc
-code ~/.zshrc
+`code ~/.zshrc`
 
 
 Example:
-export PATH="/Users/hector/code/junctionnet/github/tools/lambda-layer-tool:$PATH"
+`export PATH="/Users/yomerengues/tools/lambda-layer:$PATH"`
 
 
-Usage
 
-
-Build Lambda Layer -  Requirements:
-
-Docker should be up and running
-
+# Usage
 Requirements file with the following name convention <lambda layer name>-requirements.txt
 
 ```
