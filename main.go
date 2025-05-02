@@ -13,97 +13,96 @@ import (
 	"strings"
 )
 
+func runtimeToDockerImage(runtime string) string {
+	runtime = strings.TrimPrefix(runtime, "python")
+	return fmt.Sprintf("public.ecr.aws/lambda/python:%s", runtime)
+}
+
 func main() {
-	// Define flags
 	layerName := flag.String("name", "", "Name of the Lambda layer")
-	runtimes := flag.String("runtimes", "python3.10", "Comma-separated list of compatible runtimes")
-	requirementsFile := flag.String("requirements", "requirements.txt", "Path to the requirements.txt file")
-	deploy := flag.Bool("deploy", false, "Set this flag to deploy the Lambda layer")
+	runtime := flag.String("runtime", "python3.10", "Python runtime version")
+	requirementsFile := flag.String("requirements", "requirements.txt", "Path to requirements.txt")
+	deploy := flag.Bool("deploy", false, "Deploy the Lambda layer")
 	flag.Parse()
 
-	// Validate flags
 	if *layerName == "" {
-		log.Fatalf("--name must be specified")
+		log.Fatal("--name must be specified")
 	}
 
-	// Build the Lambda layer
-	err := buildLambdaLayer(*layerName, *runtimes, *requirementsFile)
-	if err != nil {
-		log.Fatalf("Error building Lambda layer: %v", err)
+	if err := buildLambdaLayer(*layerName, *runtime, *requirementsFile); err != nil {
+		log.Fatalf("Error building layer: %v", err)
 	}
 
-	// Deploy the Lambda layer if requested
 	if *deploy {
-		err = deployLayer(*layerName, *runtimes)
-		if err != nil {
-			log.Fatalf("Error deploying Lambda layer: %v", err)
+		if err := deployLayer(*layerName, *runtime); err != nil {
+			log.Fatalf("Error deploying layer: %v", err)
 		}
 	}
 }
 
-func buildLambdaLayer(layerName string, compatibleRuntimes string, requirementsFile string) error {
+func buildLambdaLayer(layerName, runtime, requirementsFile string) error {
 	currentDir, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get current directory: %v", err)
+		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
 	absRequirementsFile := filepath.Join(currentDir, requirementsFile)
-
-	fmt.Println("Building Lambda layer with the following details:")
-	fmt.Printf("Layer Name: %s\n", layerName)
-	fmt.Printf("Compatible Runtimes: %s\n", compatibleRuntimes)
-	fmt.Printf("Requirements File: %s\n", absRequirementsFile)
-	fmt.Println(strings.Repeat("#", 80))
-
-	if !confirmPrompt("Should I proceed building this Layer...is Docker running? (yes/no): ") {
-		return errors.New("operation canceled by user")
+	if _, err := os.Stat(absRequirementsFile); err != nil {
+		return fmt.Errorf("requirements file not found: %w", err)
 	}
 
-	dockerImage := "public.ecr.aws/lambda/python:3.10"
-	containerName := "amzn"
-
-	executeCommand("docker pull " + dockerImage)
-
-	existingContainers := executeCommand("docker ps -a --format '{{.Names}}'")
-	if strings.Contains(existingContainers, containerName) {
-		fmt.Printf("Container %s already exists. Removing it...\n", containerName)
-		executeCommand("docker rm -f " + containerName)
+	if !confirmPrompt("Proceed with building the layer? (yes/no): ") {
+		return errors.New("operation canceled")
 	}
 
-	executeCommand(fmt.Sprintf("docker run --name %s -d -t --rm %s /bin/bash", containerName, dockerImage))
+	dockerImage := runtimeToDockerImage(runtime)
+	containerName := "lambda-builder"
 
-	if _, err := os.Stat(absRequirementsFile); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("requirements file '%s' not found", absRequirementsFile)
+	// Cleanup any existing container
+	if output := executeCommand("docker ps -a --format '{{.Names}}'"); strings.Contains(output, containerName) {
+		executeCommand(fmt.Sprintf("docker rm -f %s", containerName))
 	}
 
-	fmt.Printf("Copying requirements file from %s to container...\n", absRequirementsFile)
-	executeCommand(fmt.Sprintf("docker cp %s %s:/root/requirements.txt", absRequirementsFile, containerName))
+	// Start container with proper platform and bind mounts
+	executeCommand(fmt.Sprintf(
+		"docker run --platform linux/amd64 --name %s -d -t --rm -v %s:/host %s /bin/bash",
+		containerName, currentDir, dockerImage,
+	))
 
+	// Install system dependencies and Python packages
 	commands := []string{
+		// Base system updates
+		"curl https://packages.microsoft.com/config/rhel/7/prod.repo > /etc/yum.repos.d/mssql-release.repo",
+		"export PYMSSQL_BUILD_WITH_BUNDLED_FREETDS=1",
 		"yum update -y",
-		"yum install -y zip",
-		"python3.10 -m ensurepip",
-		"python3.10 -m pip install --upgrade pip",
-		"python3.10 -m pip install -r /root/requirements.txt -t /root/package/python",
-		"find /root/package/ -name '*.pyc' -delete",
-		"rm -rf /root/package/urllib3* /root/package/six* /root/package/botocore* /root/package/idna* /root/package/tomli* /root/package/jmespath* /root/package/charset_normalizer*",
-		"find /root/package/ -name '*.dist-info' -exec rm -rf {} +",
-		"find /root/package/ -type d -name '__pycache__' -exec rm -r {} +",
-		fmt.Sprintf("cd /root/package && zip -r9qv ../%s.zip *", layerName),
+		"yum install -y gcc python3-devel git zip freetds freetds-devel",
+
+		// PostgreSQL dependencies
+		"yum install -y postgresql-devel postgresql-libs",
+		// SQL Server dependencies
+		"ACCEPT_EULA=Y yum install -y msodbcsql17 mssql-tools unixodbc unixODBC-devel",
+		
+		// Python toolchain
+		fmt.Sprintf("%s -m pip install --upgrade pip", runtime),
+
+		// Package installation
+		fmt.Sprintf("%s -m pip install -r /host/%s -t /root/package/python", runtime, requirementsFile),
+
+
+		// Library bundling
+		"cp /usr/lib64/libpq.so* /root/package/python/",
+		"cp /usr/lib64/libodbc.so* /root/package/python/",
+		
+		// Cleanup
+		"find /root/package/ -type d -name '__pycache__' -exec rm -rf {} +",
+		"cd /root/package && zip -r9q /host/sqlalchemy-package.zip .",
 	}
 
 	for _, cmd := range commands {
-		fmt.Printf("Executing inside container: %s\n", cmd)
-		executeCommand(fmt.Sprintf("docker exec %s sh -c \"%s\"", containerName, cmd))
+		executeCommand(fmt.Sprintf("docker exec %s sh -c %q", containerName, cmd))
 	}
 
-	outputDir := currentDir
-	fmt.Printf("Copying the resulting ZIP file to %s/%s.zip...\n", outputDir, layerName)
-	executeCommand(fmt.Sprintf("docker cp %s:/root/%s.zip %s/%s.zip", containerName, layerName, outputDir, layerName))
-
-	fmt.Println("Cleaning up Docker container and temporary files...")
-	executeCommand("docker rm -f " + containerName)
-
+	executeCommand(fmt.Sprintf("docker rm -f %s", containerName))
 	return nil
 }
 
@@ -114,8 +113,8 @@ func executeCommand(command string) string {
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Error: %v\n", err)
-		exitWithError(fmt.Sprintf("Command failed: %s", command))
+		fmt.Printf("Command failed: %v\n", err)
+		os.Exit(1)
 	}
 	return out.String()
 }
@@ -124,33 +123,18 @@ func confirmPrompt(prompt string) bool {
 	fmt.Print(prompt)
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
-	response := strings.ToLower(strings.TrimSpace(scanner.Text()))
-	return response == "yes"
+	return strings.ToLower(scanner.Text()) == "yes"
 }
 
-func exitWithError(message string) {
-	fmt.Println(message)
-	os.Exit(1)
-}
-
-func deployLayer(layerName string, compatibleRuntimes string) error {
-	layerDescription := fmt.Sprintf("%s for Lambda functions", strings.Title(layerName))
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %v", err)
-	}
-	outputDir := currentDir
-	zipFilePath := filepath.Join(outputDir, fmt.Sprintf("%s.zip", layerName))
-
-	if !confirmPrompt("Should I Publish the layer to AWS Lambda? (yes/no): ") {
-		fmt.Println("Skipping publishing the layer to AWS Lambda.")
+func deployLayer(layerName, runtime string) error {
+	if !confirmPrompt("Publish layer to AWS Lambda? (yes/no): ") {
 		return nil
 	}
 
-	fmt.Printf("Publishing the layer to AWS Lambda with name '%s'...\n", layerName)
+	description := fmt.Sprintf("%s layer for %s", layerName, runtime)
 	executeCommand(fmt.Sprintf(
-		"aws lambda publish-layer-version --layer-name %s --description '%s' --zip-file fileb://%s --compatible-runtimes %s",
-		layerName, layerDescription, zipFilePath, compatibleRuntimes,
+		"aws lambda publish-layer-version --layer-name %s --description %q --zip-file fileb://%s.zip --compatible-runtimes %s",
+		layerName, description, layerName, runtime,
 	))
 
 	return nil
