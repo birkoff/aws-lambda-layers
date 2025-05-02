@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -51,9 +50,9 @@ func buildLambdaLayer(layerName, runtime, requirementsFile string) error {
 		return fmt.Errorf("requirements file not found: %w", err)
 	}
 
-	if !confirmPrompt("Proceed with building the layer? (yes/no): ") {
-		return errors.New("operation canceled")
-	}
+	// if !confirmPrompt("Proceed with building the layer? (yes/no): ") {
+	// 	return errors.New("operation canceled")
+	// }
 
 	dockerImage := runtimeToDockerImage(runtime)
 	containerName := "lambda-builder"
@@ -72,15 +71,13 @@ func buildLambdaLayer(layerName, runtime, requirementsFile string) error {
 	// Install system dependencies and Python packages
 	commands := []string{
 		// Base system updates
-		"curl https://packages.microsoft.com/config/rhel/7/prod.repo > /etc/yum.repos.d/mssql-release.repo",
-		"export PYMSSQL_BUILD_WITH_BUNDLED_FREETDS=1",
 		"yum update -y",
-		"yum install -y gcc python3-devel git zip freetds freetds-devel",
+		"yum install -y gcc python3-devel",
 
 		// PostgreSQL dependencies
-		"yum install -y postgresql-devel postgresql-libs",
+		"yum install -y gcc python3-devel postgresql-devel postgresql-libs",
 		// SQL Server dependencies
-		"ACCEPT_EULA=Y yum install -y msodbcsql17 mssql-tools unixodbc unixODBC-devel",
+		"ACCEPT_EULA=Y yum install -y msodbcsql17 freetds freetds-devel unixodbc unixODBC-devel",
 		
 		// Python toolchain
 		fmt.Sprintf("%s -m pip install --upgrade pip", runtime),
@@ -95,14 +92,23 @@ func buildLambdaLayer(layerName, runtime, requirementsFile string) error {
 		
 		// Cleanup
 		"find /root/package/ -type d -name '__pycache__' -exec rm -rf {} +",
-		"cd /root/package && zip -r9q /host/sqlalchemy-package.zip .",
+		fmt.Sprintf("cd /root/package && zip -r9qv ../%s.zip *", layerName),
+
 	}
 
 	for _, cmd := range commands {
 		executeCommand(fmt.Sprintf("docker exec %s sh -c %q", containerName, cmd))
 	}
 
+
+	outputDir := currentDir
+	fmt.Printf("Copying the resulting ZIP file to %s/%s.zip...\n", outputDir, layerName)
+	executeCommand(fmt.Sprintf("docker cp %s:/root/%s.zip %s/%s.zip", containerName, layerName, outputDir, layerName))
+
+	fmt.Println("Cleaning up Docker container and temporary files...")
 	executeCommand(fmt.Sprintf("docker rm -f %s", containerName))
+
+
 	return nil
 }
 
