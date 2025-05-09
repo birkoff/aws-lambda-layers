@@ -11,7 +11,7 @@ all: build clean
 build:
 	@echo "Building Docker image..."
 	docker build --platform linux/amd64 -t $(LAYER_NAME) .
-	docker run --platform linux/amd64 \
+	docker run -rm --platform linux/amd64 \
 		-v "$(PWD)":/var/task \
 		--entrypoint /bin/bash \
 		$(LAYER_NAME) \
