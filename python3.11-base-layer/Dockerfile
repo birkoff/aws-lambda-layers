@@ -10,6 +10,12 @@ RUN yum install -y \
     gcc \
     && yum clean all
 
+RUN mkdir -p /newfolder
+RUN chown newuser /newfolder
+USER newuser
+WORKDIR /newfolder
+
+
 # Create layer directory and install packages
 RUN mkdir /opt/python/ && cd /opt/python/  && \
     pip install --upgrade pip && \
