@@ -42,16 +42,10 @@ publish:
 		--description "$$(echo $(DESCRIPTION) | sed 's/"/\\"/g')" \
 		--output json | jq -r '.Version'); \
 	aws lambda add-layer-version-permission \
-		--layer-name $(LAYER_NAME) \
-		--statement-id grant-access-to-dev-$$VERSION \
-		--principal 225725557140 \
-		--action lambda:GetLayerVersion \
-		--version-number $$VERSION;  \
-	aws lambda add-layer-version-permission \
-		--layer-name $(LAYER_NAME) \
-		--statement-id grant-access-to-production-$$VERSION \
-		--principal 894898254520 \
-		--action lambda:GetLayerVersion \
-		--version-number $$VERSION; \
+#		--layer-name $(LAYER_NAME) \
+#		--statement-id grant-access-to-dev-$$VERSION \
+#		--principal 000000000000 \
+#		--action lambda:GetLayerVersion \
+#		--version-number $$VERSION;  \
 	echo "Published version: $$VERSION"
 
